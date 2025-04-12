@@ -158,3 +158,68 @@ model role_permissions {
   role               roles       @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction, map: "role_permission_role_fk")
   permission         permissions @relation(fields: [permission_id], references: [permission_id], onDelete: NoAction, onUpdate: NoAction, map: "role_permission_permission_fk")
 }
+
+enum DocumentType {
+  prescription
+  aadharcard
+  gst
+}
+
+model CustomerBusiness {
+  customer_business_id Int @id @default(autoincrement())
+  organisation_id       Int
+  company_name          String?
+  company_gst           String?
+  created_at            DateTime?
+  updated_at            DateTime?
+
+  customers Customer[]
+}
+
+model Customer {
+  customer_id                          Int @id @default(autoincrement())
+  organisation_id                      Int
+  customer_type                        Int
+  customer_business_id                Int? 
+  customer_name                        String
+  customer_display_name                String
+  email                                String? @unique
+  phone                                String? @unique
+  mobile                               String? @unique
+  pan                                  String?
+  currency                             String? @db.VarChar(3)
+  credit_days                          Int?
+  status                               Int    @default(0)
+  is_auto_generated_sales_number_enabled Boolean @default(false)
+  is_enable_portal                     Boolean @default(false)
+
+  // Address
+  attention                            String?
+  country                              String?
+  street1                              String?
+  street2                              String?
+  city                                 String?
+  state                                String?
+  zipcode                              String?
+
+  // Meta
+  remarks                              String?
+  created_at                           DateTime?
+  updated_at                           DateTime?
+
+  customer_business                    CustomerBusiness? @relation(fields: [customer_business_id], references: [customer_business_id])
+  documents                            CustomerDocuments[]
+
+}
+
+model CustomerDocuments {
+  customer_document_id Int @id @default(autoincrement())
+  organisation_id       Int
+  customer_id           Int
+  document_type         DocumentType
+  document_name         String?
+  document_url          String?
+  uploaded_at           DateTime @default(now())
+
+  customer              Customer @relation(fields: [customer_id], references: [customer_id])
+}
