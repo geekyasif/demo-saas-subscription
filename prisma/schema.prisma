@@ -110,7 +110,6 @@ model roles {
   is_active        Boolean?           @default(true)
   role_type        RoleType?          @default(custom)
   users            users[]
-  permissions      permissions[]
   role_permissions role_permissions[]
   organisation     organisations?     @relation(fields: [organisation_id], references: [organisation_id], onDelete: NoAction, onUpdate: NoAction, map: "role_organisation_fk")
 }
@@ -139,16 +138,13 @@ enum PermissionActionType {
 }
 
 model permissions {
-  permission_id            Int                  @id @default(autoincrement())
-  permission_name          String               @db.VarChar(50)
-  role_id                  Int
-  module_id                Int
-  action                   PermissionActionType
-  is_active                Boolean              @default(true)
-  role                     roles                @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction, map: "permission_role_fk")
-  role_permissions         role_permissions[]
-  sub_modules              sub_modules?         @relation(fields: [sub_modulesSub_module_id], references: [sub_module_id])
-  sub_modulesSub_module_id Int?
+  permission_id    Int                  @id @default(autoincrement())
+  permission_name  String               @db.VarChar(50)
+  sub_module_id    Int?
+  action           PermissionActionType
+  is_active        Boolean              @default(true)
+  sub_modules      sub_modules?         @relation(fields: [sub_module_id], references: [sub_module_id], onDelete: NoAction, onUpdate: NoAction, map: "sub_modules_permission_fk")
+  role_permissions role_permissions[]
 }
 
 model role_permissions {
