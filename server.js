@@ -12,7 +12,7 @@ dotenv.config();
 app.use(express.json());
 app.use(cors());
 
-// app.use("*", (req, res) => {
+// aapp.use("*", (req, res) => {
 //   console.log({ url: req.url, body: req.body });
 // });
 
@@ -297,7 +297,7 @@ app.post("/createCustomer", upload.array("documents"), async (req, res) => {
           return {
             organisation_id: parseInt(organisation_id),
             customer_id: new_customer.customer_id,
-            document_type: allowedTypes.includes(docType?.toUpperCase()) ? docType : "other",
+            document_type: allowedTypes.includes(docType?.toUapperCase()) ? docType : "other",
             document_name: parsedMeta[index]?.document_name || file.originalname,
             document_url: file.path,
           };
@@ -325,7 +325,7 @@ app.post("/createCustomer", upload.array("documents"), async (req, res) => {
 });
 
 
-app.get("/filterCustomer", async (req, res) => {
+/*aapp.get("/filterCustomer", async (req, res) => {
   try {
     const {
       organisation_id,
@@ -411,7 +411,7 @@ app.get("/filterCustomer", async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
-
+*/
 
 /*
 
@@ -431,6 +431,139 @@ limit	Int	- No	Number of records per page (default: 10)
 */
 
 
+const filterValidation = [
+  "customer_name",
+  "customer_id",
+  "status",
+  "email",
+  "phone",
+  "mobile",
+  "pan",
+  "customer_type",
+  "organisation_id",
+];
+const sortValidation = ["customer_name", "created_at", "email"];
+
+// GET /customers - Filter Customers
+app.get("/customers", async (req, res) => {
+  try {
+    const { page = 1, pageSize = 10, sortBy = "created_at", orderBy = "desc", filters = {} } = req.query;
+
+    let parsedFilters = {};
+    try {
+      parsedFilters = typeof filters === "string" ? JSON.parse(filters) : filters;
+    } catch {
+      return res.status(400).json({ success: false, message: "Invalid filters JSON" });
+    }
+
+    // Validate filters
+    const invalidFilters = Object.keys(parsedFilters).filter(f => !filterValidation.includes(f));
+    if (invalidFilters.length > 0) {
+      return res.status(400).json({ success: false, message: `Invalid filter fields: ${invalidFilters.join(", ")}` });
+    }
+
+    // Validate sort
+    if (!sortValidation.includes(sortBy)) {
+      return res.status(400).json({ success: false, message: `Invalid sort field: ${sortBy}` });
+    }
+
+    const where = {};
+    for (const key of Object.keys(parsedFilters)) {
+      where[key] = parsedFilters[key];
+    }
+
+    const [customers, total] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        orderBy: { [sortBy]: orderBy },
+        skip: (parseInt(page) - 1) * parseInt(pageSize),
+        take: parseInt(pageSize),
+      }),
+      prisma.customer.count({ where })
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: customers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalPages: Math.ceil(total / pageSize),
+      },
+    });
+  } catch (err) {
+    console.error("Filter Error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// PUT /customers/:id - Update Customer
+app.put("/customers/:id", async (req, res) => {
+  try {
+    const customer_id = parseInt(req.params.id);
+    const { status, customer_name, customer_display_name, email } = req.body;
+
+    if (parseInt(status) === 2) {
+      const missingFields = [];
+      if (!customer_name) missingFields.push("customer_name");
+      if (!customer_display_name) missingFields.push("customer_display_name");
+      if (!email) missingFields.push("email");
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing fields for active status: ${missingFields.join(", ")}`,
+        });
+      }
+    }
+
+    await prisma.customer.update({
+      where: { customer_id },
+      data: req.body,
+    });
+
+    return res.status(200).json({ success: true, message: "Customer updated successfully" });
+  } catch (err) {
+    console.error("Update Error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// DELETE /customers - Delete Customers
+app.delete("/customers", async (req, res) => {
+  try {
+    let { customer_ids } = req.query;
+    if (!customer_ids) return res.status(400).json({ success: false, message: "customer_ids required" });
+
+    customer_ids = JSON.parse(customer_ids).map(Number);
+    if (!Array.isArray(customer_ids) || customer_ids.some(isNaN)) {
+      return res.status(400).json({ success: false, message: "Invalid customer_ids array" });
+    }
+
+    const existing = await prisma.customer.findMany({
+      where: { customer_id: { in: customer_ids } },
+      select: { customer_id: true },
+    });
+
+    const foundIds = existing.map(c => c.customer_id);
+    const notFoundIds = customer_ids.filter(id => !foundIds.includes(id));
+
+    if (notFoundIds.length > 0) {
+      return res.status(404).json({ success: false, message: `Customers not found: ${notFoundIds.join(", ")}` });
+    }
+
+    await prisma.customer.deleteMany({
+      where: { customer_id: { in: customer_ids } },
+    });
+
+    return res.status(200).json({ success: true, message: "Customers deleted successfully" });
+  } catch (err) {
+    console.error("Delete Error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
 
 
 
@@ -441,7 +574,7 @@ app.listen(PORT, () => {
 });
 
 /*
-https://dev.pharmnex.app/
+https://dev.pharmnex.aapp/
 aditbhargava.1991+001@gmail.com
 Admin@123
 
