@@ -38,6 +38,7 @@ model plan_features {
   boolean_value   Boolean?
   text_value      String?   @db.VarChar(100)
   numeric_value   Int?
+  is_unlimited    Boolean?  @default(false)
   feature_value   String?   @db.VarChar(100)
   features        features? @relation(fields: [feature_id], references: [feature_id], onDelete: NoAction, onUpdate: NoAction, map: "feature_fk")
   plans           plans?    @relation(fields: [plan_id], references: [plan_id], onDelete: NoAction, onUpdate: NoAction, map: "plan_fk")
@@ -70,12 +71,12 @@ model users {
   name                String?        @db.VarChar(50)
   password            String?        @db.VarChar(100)
   organisation_id     Int?
-  role_id             Int?
   user_type           usertype?
+  role_id             Int?
   is_system_generated Boolean?       @default(false)
   is_active           Boolean?       @default(true)
-  organisations       organisations? @relation(fields: [organisation_id], references: [organisation_id], onDelete: NoAction, onUpdate: NoAction, map: "user_organisation_fk")
   role                roles?         @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction, map: "user_role_fk")
+  organisations       organisations? @relation(fields: [organisation_id], references: [organisation_id], onDelete: NoAction, onUpdate: NoAction, map: "user_organisation_fk")
 }
 
 enum featureinputtype {
