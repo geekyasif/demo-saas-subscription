@@ -5,13 +5,14 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const dotenv = require("dotenv");
+const upload = require('./middleware/multerMiddleware');
 dotenv.config();
 
 // body parser
 app.use(express.json());
 app.use(cors());
 
-// app.use("*", (req, res) => {
+// aapp.use("*", (req, res) => {
 //   console.log({ url: req.url, body: req.body });
 // });
 
@@ -183,7 +184,400 @@ app.post("/plans", (req, res) => {});
 // create feature
 app.post("/features", (req, res) => {});
 
-const PORT = 5000;
+app.post("/createCustomer", upload.array("documents"), async (req, res) => {
+  try {
+    const {
+      organisation_id,
+      customer_type,
+      customer_name,
+      customer_display_name,
+      email,
+      phone,
+      mobile,
+      pan,
+      currency,
+      credit_days,
+      status, // should be either "draft" or "active"
+      is_auto_generated_sales_number_enabled,
+      is_enable_portal,
+      attention,
+      country,
+      street1,
+      street2,
+      city,
+      state,
+      zipcode,
+      remarks,
+      company_name,
+      company_gst,
+      documents_meta,
+    } = req.body;
+
+    const isActive = status === 2;
+
+  
+    if (isActive) {
+      const requiredFields = [
+        { field: customer_name, name: "customer_name" },
+        { field: customer_display_name, name: "customer_display_name" },
+        { field: email, name: "email" }
+      ];
+
+      const missingFields = requiredFields.filter(f => !f.field);
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing required fields for active customer: ${missingFields.map(f => f.name).join(", ")}`
+        });
+      }
+
+      const existingCustomer = await prisma.customer.findFirst({
+        where: { email },
+      });
+
+      if (existingCustomer) {
+        return res.status(400).json({
+          success: false,
+          message: "Customer with this email already exists",
+        });
+      }
+    }
+
+    const uploadedFiles = req.files;
+    const parsedMeta = documents_meta ? JSON.parse(documents_meta) : [];
+
+    const result = await prisma.$transaction(async (tx) => {
+      let customer_business = null;
+
+      if (parseInt(customer_type) === 2) {
+        customer_business = await tx.customerBusiness.create({
+          data: {
+            organisation_id: parseInt(organisation_id),
+            company_name,
+            company_gst,
+            created_at: new Date(),
+            updated_at: new Date(),
+          },
+        });
+      }
+
+      const new_customer = await tx.customer.create({
+        data: {
+          organisation_id: parseInt(organisation_id),
+          customer_type: parseInt(customer_type),
+          customer_business_id: customer_business?.customer_business_id || null,
+          customer_name,
+          customer_display_name,
+          email,
+          phone,
+          mobile,
+          pan,
+          currency,
+          credit_days: credit_days ? parseInt(credit_days) : null,
+          status: parseInt(status),
+          is_auto_generated_sales_number_enabled: is_auto_generated_sales_number_enabled === "true",
+          is_enable_portal: is_enable_portal === "true",
+          attention,
+          country,
+          street1,
+          street2,
+          city,
+          state,
+          zipcode,
+          remarks,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
+
+      if (isActive && uploadedFiles.length && parsedMeta.length) {
+        const allowedTypes = ["AADHAAR", "PAN", "GST", "OTHER"];
+        const documentsToCreate = uploadedFiles.map((file, index) => {
+          const docType = parsedMeta[index]?.document_type?.toLowerCase();
+          return {
+            organisation_id: parseInt(organisation_id),
+            customer_id: new_customer.customer_id,
+            document_type: allowedTypes.includes(docType?.toUapperCase()) ? docType : "other",
+            document_name: parsedMeta[index]?.document_name || file.originalname,
+            document_url: file.path,
+          };
+        });
+
+        await tx.customerDocuments.createMany({ data: documentsToCreate });
+      }
+
+      return new_customer;
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Customer created successfully",
+      customer_id: result.customer_id,
+    });
+
+  } catch (err) {
+    console.error("Create customer error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+});
+
+
+/*aapp.get("/filterCustomer", async (req, res) => {
+  try {
+    const {
+      organisation_id,
+      status,
+      customer_type,
+      search,
+      company_name,
+      date_from,
+      date_to,
+      has_documents,
+      sort_by = "created_at",
+      sort_order = "desc",
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const whereClause = {};
+
+    if (organisation_id) {
+      whereClause.organisation_id = parseInt(organisation_id);
+    }
+
+    if (status) whereClause.status = parseInt(status);
+    if (customer_type) whereClause.customer_type = parseInt(customer_type);
+
+    if (search) {
+      whereClause.OR = [
+        { customer_name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { phone: { contains: search, mode: "insensitive" } },
+        { mobile: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    if (date_from || date_to) {
+      whereClause.created_at = {};
+      if (date_from) whereClause.created_at.gte = new Date(date_from);
+      if (date_to) whereClause.created_at.lte = new Date(date_to);
+    }
+
+    if (has_documents === "true") {
+      whereClause.documents = {
+        some: {},
+      };
+    } else if (has_documents === "false") {
+      whereClause.documents = {
+        none: {},
+      };
+    }
+
+    if (company_name) {
+      whereClause.customer_business = {
+        company_name: {
+          contains: company_name,
+          mode: "insensitive",
+        },
+      };
+    }
+
+    const [customers, total] = await Promise.all([
+      prisma.customer.findMany({
+        where: whereClause,
+        include: { customer_business: true, documents: true },
+        orderBy: { [sort_by]: sort_order },
+        skip: (parseInt(page) - 1) * parseInt(limit),
+        take: parseInt(limit),
+      }),
+      prisma.customer.count({ where: whereClause }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: customers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (err) {
+    console.error("Advanced filter error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+*/
+
+/*
+
+Parameter	Type	Required	Description
+organisation_id	Int	- No	ID of the organisation
+status	Int	- No	1 = Draft, 2 = Active
+customer_type	Int	- No	1 = Individual, 2 = Business
+search	String	- No	Search across name, email, phone, mobile
+company_name	String	- No	Partial match for company name (for business customers only)
+date_from	Date	- No	Start date for created_at filter (YYYY-MM-DD)
+date_to	Date	- No	End date for created_at filter (YYYY-MM-DD)
+has_documents	Boolean	- No	true or false to filter by existence of customer documents
+sort_by	String	- No	Field to sort by (created_at, customer_name, etc.)
+sort_order	String	- No	asc or desc
+page	Int	- No	Page number for pagination (default: 1)
+limit	Int	- No	Number of records per page (default: 10)
+*/
+
+
+const filterValidation = [
+  "customer_name",
+  "customer_id",
+  "status",
+  "email",
+  "phone",
+  "mobile",
+  "pan",
+  "customer_type",
+  "organisation_id",
+];
+const sortValidation = ["customer_name", "created_at", "email"];
+
+// GET /customers - Filter Customers
+app.get("/customers", async (req, res) => {
+  try {
+    const { page = 1, pageSize = 10, sortBy = "created_at", orderBy = "desc", filters = {} } = req.query;
+
+    let parsedFilters = {};
+    try {
+      parsedFilters = typeof filters === "string" ? JSON.parse(filters) : filters;
+    } catch {
+      return res.status(400).json({ success: false, message: "Invalid filters JSON" });
+    }
+
+    // Validate filters
+    const invalidFilters = Object.keys(parsedFilters).filter(f => !filterValidation.includes(f));
+    if (invalidFilters.length > 0) {
+      return res.status(400).json({ success: false, message: `Invalid filter fields: ${invalidFilters.join(", ")}` });
+    }
+
+    // Validate sort
+    if (!sortValidation.includes(sortBy)) {
+      return res.status(400).json({ success: false, message: `Invalid sort field: ${sortBy}` });
+    }
+
+    const where = {};
+    for (const key of Object.keys(parsedFilters)) {
+      where[key] = parsedFilters[key];
+    }
+
+    const [customers, total] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        orderBy: { [sortBy]: orderBy },
+        skip: (parseInt(page) - 1) * parseInt(pageSize),
+        take: parseInt(pageSize),
+      }),
+      prisma.customer.count({ where })
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: customers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalPages: Math.ceil(total / pageSize),
+      },
+    });
+  } catch (err) {
+    console.error("Filter Error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// PUT /customers/:id - Update Customer
+app.put("/customers/:id", async (req, res) => {
+  try {
+    const customer_id = parseInt(req.params.id);
+    const { status, customer_name, customer_display_name, email } = req.body;
+
+    if (parseInt(status) === 2) {
+      const missingFields = [];
+      if (!customer_name) missingFields.push("customer_name");
+      if (!customer_display_name) missingFields.push("customer_display_name");
+      if (!email) missingFields.push("email");
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing fields for active status: ${missingFields.join(", ")}`,
+        });
+      }
+    }
+
+    await prisma.customer.update({
+      where: { customer_id },
+      data: req.body,
+    });
+
+    return res.status(200).json({ success: true, message: "Customer updated successfully" });
+  } catch (err) {
+    console.error("Update Error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// DELETE /customers - Delete Customers
+app.delete("/customers", async (req, res) => {
+  try {
+    let { customer_ids } = req.query;
+    if (!customer_ids) return res.status(400).json({ success: false, message: "customer_ids required" });
+
+    customer_ids = JSON.parse(customer_ids).map(Number);
+    if (!Array.isArray(customer_ids) || customer_ids.some(isNaN)) {
+      return res.status(400).json({ success: false, message: "Invalid customer_ids array" });
+    }
+
+    const existing = await prisma.customer.findMany({
+      where: { customer_id: { in: customer_ids } },
+      select: { customer_id: true },
+    });
+
+    const foundIds = existing.map(c => c.customer_id);
+    const notFoundIds = customer_ids.filter(id => !foundIds.includes(id));
+
+    if (notFoundIds.length > 0) {
+      return res.status(404).json({ success: false, message: `Customers not found: ${notFoundIds.join(", ")}` });
+    }
+
+    await prisma.customer.deleteMany({
+      where: { customer_id: { in: customer_ids } },
+    });
+
+    return res.status(200).json({ success: true, message: "Customers deleted successfully" });
+  } catch (err) {
+    console.error("Delete Error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+
+
+
+
+const PORT = 5001;
 app.listen(PORT, () => {
   console.log(`Server is listening on PORT-${PORT}`);
 });
+
+/*
+https://dev.pharmnex.aapp/
+aditbhargava.1991+001@gmail.com
+Admin@123
+
+
+
+*/
